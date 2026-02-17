@@ -2,7 +2,7 @@
 This is a project as part of our Neural Networks and Deep Learning module at the NUS. We have built upon the existing works to build a better model with less data.
 
 ## Setup
-For setting up and experimenting with this repository, you can refer to [Setup File](Setup.md)
+For setting up and experimenting with this repository, you can refer to [Setup File](Setup.md) .
 
 ## Problem Statement
 Given an image and a palette, we aim to recolorize that image with the palette that is visually harmonious and aesthetically pleasing.
