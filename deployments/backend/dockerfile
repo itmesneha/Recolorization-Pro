@@ -1,0 +1,23 @@
+# ---------- Base image ----------
+FROM python:3.10-slim
+
+# ---------- System deps ----------
+RUN apt-get update
+
+# ---------- Workdir ----------
+WORKDIR /app
+
+# ---------- Copy application code ----------
+COPY inference/ .
+    
+# ---------- Install Python deps ----------
+RUN pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir -r requirements.txt
+
+
+RUN echo "=== Files in /app ===" && ls -lah /app
+# ---------- Expose port ----------
+EXPOSE 8000
+
+# ---------- Run server ----------
+CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}"]
