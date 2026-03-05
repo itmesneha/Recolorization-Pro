@@ -20,3 +20,5 @@ datasets/sample
 *.DS_Store
 
 **/*.env
+**/*.json
+**/*.pckl
