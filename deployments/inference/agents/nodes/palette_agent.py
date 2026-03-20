@@ -15,9 +15,7 @@ import sys
 sys.path.insert(0, "../")
 from state import PaletteCandidate
 from tools.colormind import fetch_palette
-from tools.palette_utils import (
-    palette_to_hex,
-)
+from tools.palette_utils import palette_to_hex
 from tools.palette_formation import generate_palette_from_description, get_random_palette, parse_user_colors, create_palette_variation
 
 logger = logging.getLogger("palette_agent")
@@ -104,6 +102,8 @@ TOOLS = [
         parse_user_colors,
         create_palette_variation,
     ]
+
+
 
 def call_model(state: MessagesState):
     """Invoke the LLM with the current messages and bound tools."""

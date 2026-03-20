@@ -10,10 +10,15 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from agent_api import agent_router
 from session import cleanup_old_sessions
+
+_UI_PATH = os.path.join(os.path.dirname(__file__), "chat_ui.html")
 
 
 async def _session_cleanup_loop():
@@ -46,6 +51,11 @@ app.add_middleware(
 )
 
 app.include_router(agent_router)
+
+
+@app.get("/")
+def index():
+    return FileResponse(_UI_PATH, media_type="text/html")
 
 
 @app.get("/health")

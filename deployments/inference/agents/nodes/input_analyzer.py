@@ -9,14 +9,22 @@ Possible next_nodes values:
 - ["image_agent"]                     need image processing
 - ["palette_agent"]                   need palette generation
 - ["image_agent", "palette_agent"]    parallel dispatch
+
+When the user explicitly provides a complete palette, input_analyzer
+sets it directly in state and removes palette_agent from the plan so
+the sub-graph is never invoked.
 """
 
+import json
 import logging
 
 from langchain_ollama import ChatOllama
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 logger = logging.getLogger("input_analyzer")
+
+
+# ── Dispatch prompt ───────────────────────────────────────────────────────────
 
 DISPATCH_PROMPT = """You are routing a recolorization pipeline. Decide which agents need to run.
 
@@ -45,6 +53,71 @@ Examples:
 Agents:"""
 
 
+# ── Explicit palette extraction ───────────────────────────────────────────────
+
+_EXPLICIT_PALETTE_SYSTEM = """You are a color extraction assistant. Decide whether the user explicitly provided a complete, ready-to-use palette, and if so extract the colors.
+
+A palette is "explicit" when the user clearly supplies specific color values (hex codes, RGB values) intending them to be used directly — not generated or interpreted from a description.
+
+EXPLICIT examples:
+- "Please use this palette: #FF0000, #00FF00, #0000FF, #FFFF00, #FF00FF, #00FFFF"
+- "[Custom palette: #e63946, #457b9d, #2a9d8f, #e9c46a, #f4a261, #264653]"
+- "use these colors: #aabbcc, #112233, #334455, #556677, #778899, #99aabb"
+- "recolor with rgb(255,0,0), rgb(0,255,0), rgb(0,0,255), rgb(255,255,0), rgb(255,0,255), rgb(0,255,255)"
+
+NOT explicit (user wants generation):
+- "use warm sunset colors"
+- "make it ocean vibes"
+- "something neon and bright"
+- "recolor with forest tones"
+
+Respond with ONLY valid JSON — no explanation, no markdown:
+- Explicit palette found: {"explicit": true, "colors": [[R,G,B], [R,G,B], [R,G,B], [R,G,B], [R,G,B], [R,G,B]]}
+- Not explicit:           {"explicit": false}
+
+The colors array must have exactly 6 [R, G, B] triplets (0-255)."""
+
+
+def _extract_explicit_palette(message: str) -> list[list[int]] | None:
+    """Use an LLM to check whether the message contains an explicit palette.
+
+    Returns 6 RGB triplets if the user clearly provided colors to use as-is,
+    or None if the palette should be generated / interpreted by palette_agent.
+    """
+    llm = ChatOllama(model="llama3.1:8b", temperature=0, num_predict=128)
+    response = llm.invoke([
+        SystemMessage(content=_EXPLICIT_PALETTE_SYSTEM),
+        HumanMessage(content=message),
+    ])
+    raw = response.content.strip()
+    logger.debug("Explicit palette LLM response: %s", raw[:200])
+
+    try:
+        # Strip markdown code fences if the model wraps in ```json ... ```
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+
+        parsed = json.loads(raw)
+        if not parsed.get("explicit"):
+            return None
+
+        colors = parsed.get("colors", [])
+        if len(colors) == 6 and all(len(c) == 3 for c in colors):
+            rgb = [[max(0, min(255, int(v))) for v in c] for c in colors]
+            logger.info("Explicit palette extracted: %s", rgb)
+            return rgb
+
+        logger.warning("LLM returned explicit=true but colors malformed: %s", colors)
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        logger.warning("Could not parse explicit-palette response: %s | raw: %s", exc, raw[:100])
+
+    return None
+
+
+# ── Main node ─────────────────────────────────────────────────────────────────
+
 def _last_human_message(state: dict) -> str:
     for msg in reversed(state.get("messages", [])):
         if isinstance(msg, HumanMessage):
@@ -67,9 +140,9 @@ def input_analyzer(state: dict) -> dict:
         intents, has_image, has_palette,
     )
 
-    llm = ChatOllama(model="llama3.1:8b", temperature=0.0, num_predict=32)
-
-    response = llm.invoke([
+    # ── Dispatch LLM ─────────────────────────────────────────────────────────
+    dispatch_llm = ChatOllama(model="llama3.1:8b", temperature=0.0, num_predict=32)
+    response = dispatch_llm.invoke([
         HumanMessage(content=DISPATCH_PROMPT.format(
             has_image=has_image,
             has_palette=has_palette,
@@ -79,7 +152,6 @@ def input_analyzer(state: dict) -> dict:
         ))
     ])
 
-    # Take only the first line in case the model adds explanation
     raw = response.content.strip().lower().split("\n")[0]
     logger.info("LLM dispatch response: %r", raw)
 
@@ -102,7 +174,6 @@ def input_analyzer(state: dict) -> dict:
         if has_image and has_palette:
             logger.info("Recolor shortcut: both slots filled → slot_checker")
             return {"next_nodes": ["slot_checker"]}
-        # Slots not ready — swap slot_checker for the missing prerequisites
         execution_plan = [a for a in execution_plan if a != "slot_checker"]
         if not has_image and "image_agent" not in execution_plan:
             execution_plan.append("image_agent")
@@ -112,6 +183,28 @@ def input_analyzer(state: dict) -> dict:
     if not execution_plan:
         logger.info("No executable agents after guard → routing back to chat_agent")
         return {"next_nodes": ["chat_agent"]}
+
+    # ── Explicit palette fast-path ────────────────────────────────────────────
+    # Only check when the dispatch LLM thinks palette_agent is needed.
+    # If the user supplied specific colors directly, set them in state now
+    # and bypass palette_agent entirely.
+    if "palette_agent" in execution_plan:
+        explicit = _extract_explicit_palette(user_message)
+        if explicit:
+            logger.info(
+                "Explicit palette set in state — removing palette_agent from plan"
+            )
+            execution_plan = [n for n in execution_plan if n != "palette_agent"]
+
+            # If nothing else is left to run, let slot_checker assess the situation
+            # (it will either trigger recolor or tell the user what is still missing)
+            next_nodes = execution_plan if execution_plan else ["slot_checker"]
+
+            return {
+                "palette": explicit,
+                "palette_source": "user_explicit",
+                "next_nodes": next_nodes,
+            }
 
     logger.info("Execution plan: %s", execution_plan)
     return {"next_nodes": execution_plan}
