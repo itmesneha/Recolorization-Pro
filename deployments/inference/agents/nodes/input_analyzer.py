@@ -140,6 +140,29 @@ def input_analyzer(state: dict) -> dict:
         intents, has_image, has_palette,
     )
 
+    # ── Slot-override detection ─────────────────────────────────────────────
+    # When both slots are already filled, check if the user wants to replace
+    # one of them. Override the booleans so the dispatch LLM routes to the
+    # correct agent instead of shortcutting to slot_checker with stale data.
+    if has_image and has_palette:
+        _IMAGE_CHANGE_INTENTS = {"upload_image"}
+        _PALETTE_CHANGE_INTENTS = {
+            "set_palette", "describe_palette", "adjust_palette",
+            "variation", "extract_palette",
+        }
+        if any(i in intents for i in _IMAGE_CHANGE_INTENTS):
+            logger.info(
+                "Both slots filled but upload_image intent detected — "
+                "treating has_image=False for dispatch"
+            )
+            has_image = False
+        if any(i in intents for i in _PALETTE_CHANGE_INTENTS):
+            logger.info(
+                "Both slots filled but palette-change intent detected — "
+                "treating has_palette=False for dispatch"
+            )
+            has_palette = False
+
     # ── Dispatch LLM ─────────────────────────────────────────────────────────
     dispatch_llm = ChatOllama(model="llama3.1:8b", temperature=0.0, num_predict=32)
     response = dispatch_llm.invoke([

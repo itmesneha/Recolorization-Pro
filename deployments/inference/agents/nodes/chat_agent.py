@@ -73,7 +73,11 @@ def chat_agent(state: dict) -> dict:
     logger.info(
         "chat_agent invoked | iteration=%d", iteration,
     )
-
+    if state.get("num_messages"):
+        logger.info(
+            "chat_agent invoked | iteration=%d, num_messages=%d",
+            iteration, state["num_messages"],
+        )
     # ── Pause and wait for new user input ───────────────────────────
     # On the very first call the user message is already in state.
     # On subsequent loops (from input_analyzer or slot_checker) the
@@ -81,23 +85,31 @@ def chat_agent(state: dict) -> dict:
     # Command(resume={"message": "...", ...}).
     if iteration > 1:
         logger.info("Iteration > 1 — interrupting to wait for user input")
-        user_input = interrupt(
-            {"type": "waiting_for_input", "iteration": iteration}
-        )
-        # user_input is the dict passed via Command(resume=...)
-        new_message = user_input.get("message", "")
-        logger.info("Resumed with user message: %s", new_message[:120])
+        if len(state["messages"]) > state["num_messages"]:
+            new_message = state["messages"][-1].content
+            logger.info(
+                "Resuming with new message: %s", new_message[:120]
+            )
+        else:
+            user_input = interrupt(
+                {"type": "waiting_for_input", "iteration": iteration}
+            )
+            # user_input is the dict passed via Command(resume=...)
+            new_message = user_input.get("message", "")
+            logger.info("Resumed with user message: %s", new_message[:120])
+            if user_input.get("image_b64"):
+                state["image_b64"] = user_input["image_b64"]
+                state["image_filename"] = user_input.get("image_filename")
 
         # Inject the new message into state so downstream nodes see it
         new_human_msg = HumanMessage(content=new_message)
 
         # If the API layer also passes image data, surface it
-        if user_input.get("image_b64"):
-            state["image_b64"] = user_input["image_b64"]
-            state["image_filename"] = user_input.get("image_filename")
+        
     else:
         new_human_msg = None
 
+    state["num_messages"] = len(state["messages"])
     llm = ChatOllama(model="llama3.1:8b", temperature=0.7, num_predict=512)
     intent_llm = ChatOllama(model="llama3.1:8b", temperature=0.0, num_predict=64)
 
@@ -147,12 +159,13 @@ def chat_agent(state: dict) -> dict:
     response = llm.invoke([system] + context_messages)
 
     logger.info("Response generated | intents=%s", intents)
-
+    messages = ([new_human_msg] if new_human_msg else []) + [response]
     result = {
-        "messages": ([new_human_msg] if new_human_msg else []) + [response],
+        "messages": messages,
         "user_intents": intents,
         "chat_iterations": iteration,
         "error": None,
+        "num_messages": len(messages),
     }
 
     # Pass through image data if it came from a resume

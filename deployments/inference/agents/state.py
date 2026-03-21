@@ -34,7 +34,7 @@ class RecolorState(MessagesState):
 
     # Loop control
     chat_iterations: int  # incremented each time chat_agent runs; caps the loop
-
+    num_messages: int  # max number of messages to keep in state
     # Recolor results
     result_b64: Optional[str]
     recolor_count: int

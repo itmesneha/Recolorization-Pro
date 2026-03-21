@@ -22,3 +22,4 @@ datasets/sample
 **/*.env
 **/*.json
 **/*.pckl
+**/node_modules

@@ -94,7 +94,7 @@ TOOL SELECTION — pick based on the user message:
 | Says "random" or "surprise me"         | get_random_palette                    |
 | Wants to adjust/tweak current palette  | create_palette_variation              |
 
-When in doubt, use generate_palette_from_description — it handles any text description."""
+When in doubt, use generate_palette_from_description — it handles any text description. if you get a palette, use it. Don't call any tool."""
 
 TOOLS = [
         generate_palette_from_description,
