@@ -1,15 +1,41 @@
 """FastAPI router for the agent chat system — REST + WebSocket endpoints."""
 
+import asyncio
 import json
+import logging
+import threading
 from typing import Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.types import Command
 
 from graph import app_graph
 from session import get_or_create_session, get_session
+
+# ── Log streaming helpers ──────────────────────────────────────────────────────
+
+_LOG_TARGETS = [
+    "chat_agent", "input_analyzer", "image_agent",
+    "palette_agent", "slot_checker", "recolor_agent", "routing",
+]
+
+
+class _StreamHandler(logging.Handler):
+    """Captures INFO+ log records into a plain list (thread-safe via GIL)."""
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.INFO)
+        self.records: list[dict] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append({
+            "logger": record.name,
+            "level": record.levelname.lower(),
+            "msg": record.getMessage(),
+        })
 
 agent_router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -126,6 +152,69 @@ async def chat_endpoint(req: ChatRequest):
         result_base64=state.get("result_b64"),
         recolor_count=state.get("recolor_count", 0),
         error=state.get("error"),
+    )
+
+
+@agent_router.post("/chat/stream")
+async def chat_stream(req: ChatRequest):
+    """SSE endpoint: streams backend log events in real-time, then the final response.
+
+    Events are newline-delimited JSON in the SSE `data:` format:
+      data: {"type": "log",  "logger": "...", "level": "info", "msg": "..."}
+      data: {"type": "done", "session_id": "...", "response": "...", ...}
+      data: {"type": "error","content": "..."}
+    """
+    session_id, state = get_or_create_session(req.session_id)
+
+    handler = _StreamHandler()
+    loggers = [logging.getLogger(n) for n in _LOG_TARGETS]
+    for lg in loggers:
+        lg.addHandler(handler)
+
+    done_event = threading.Event()
+    result_holder: dict = {}
+
+    def _run() -> None:
+        try:
+            result_holder["state"] = _run_graph(
+                session_id=session_id,
+                state=state,
+                user_message=req.message,
+                image_b64=req.image_base64,
+                image_filename=req.image_filename,
+            )
+        except Exception as exc:
+            result_holder["error"] = str(exc)
+        finally:
+            done_event.set()
+            for lg in loggers:
+                lg.removeHandler(handler)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+    async def _generate():
+        sent = 0
+        while not done_event.is_set():
+            while sent < len(handler.records):
+                yield f"data: {json.dumps({'type': 'log', **handler.records[sent]})}\n\n"
+                sent += 1
+            await asyncio.sleep(0.04)
+
+        # Drain any records added between the last poll and done_event
+        while sent < len(handler.records):
+            yield f"data: {json.dumps({'type': 'log', **handler.records[sent]})}\n\n"
+            sent += 1
+
+        if "error" in result_holder:
+            yield f"data: {json.dumps({'type': 'error', 'content': result_holder['error']})}\n\n"
+        else:
+            s = result_holder["state"]
+            yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'response': _extract_response(s), **_state_payload(s)})}\n\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

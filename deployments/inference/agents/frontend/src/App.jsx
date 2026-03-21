@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { sendChat, selectPalette } from './api';
+import { sendChatStreaming, selectPalette } from './api';
 import { fileToBase64 } from './utils';
 import LeftPanel from './components/LeftPanel';
 import MessageBubble from './components/MessageBubble';
-import TypingIndicator from './components/TypingIndicator';
+import ProgressLog from './components/ProgressLog';
 import SidePanel from './components/SidePanel';
 import InputBar from './components/InputBar';
 
@@ -19,6 +19,7 @@ export default function App() {
   const [input, setInput]         = useState('');
   const [sessionId, setSessionId] = useState(null);
   const [loading, setLoading]     = useState(false);
+  const [progressLogs, setProgressLogs] = useState([]);
   const [dragOver, setDragOver]   = useState(false);
 
   // Shared attachment state (left panel upload or chat input attach)
@@ -86,6 +87,7 @@ export default function App() {
 
     setMessages(prev => [...prev, userMsg]);
     setInput('');
+    setProgressLogs([]);
 
     const b64Snap = attachedB64;
     const fnSnap  = attachedFile?.name;
@@ -96,37 +98,44 @@ export default function App() {
     setLoading(true);
 
     try {
-      const data = await sendChat({
+      const stream = sendChatStreaming({
         sessionId,
         message: finalMessage || 'I have uploaded an image.',
         imageBase64: b64Snap,
         imageFilename: fnSnap,
       });
 
-      setSessionId(data.session_id);
-      if (data.has_image && urlSnap) {
-        setCurrentImageUrl(prev => {
-          if (prev) URL.revokeObjectURL(prev);
-          return urlSnap;
-        });
-      }
-      if (data.has_palette && data.palette)  setCurrentPalette(data.palette);
-      if (data.result_base64) {
-        setCurrentResult(data.result_base64);
-        setRecolorCount(data.recolor_count || 0);
-      }
-
-      setMessages(prev => [...prev, {
-        role: 'agent',
-        content: data.response,
-        palette: data.has_palette ? data.palette : null,
-        palette_candidates: data.palette_candidates?.length > 1 ? data.palette_candidates : null,
-        result_b64:    data.result_base64 || null,
-        recolor_count: data.recolor_count,
-      }]);
-
-      if (data.error) {
-        setMessages(prev => [...prev, { role: 'agent', content: `⚠ ${data.error}` }]);
+      for await (const event of stream) {
+        if (event.type === 'log') {
+          setProgressLogs(prev => [...prev, event]);
+        } else if (event.type === 'done') {
+          const data = event;
+          setSessionId(data.session_id);
+          if (data.has_image && urlSnap) {
+            setCurrentImageUrl(prev => {
+              if (prev) URL.revokeObjectURL(prev);
+              return urlSnap;
+            });
+          }
+          if (data.has_palette && data.palette)  setCurrentPalette(data.palette);
+          if (data.result_base64) {
+            setCurrentResult(data.result_base64);
+            setRecolorCount(data.recolor_count || 0);
+          }
+          setMessages(prev => [...prev, {
+            role: 'agent',
+            content: data.response,
+            palette: data.has_palette ? data.palette : null,
+            palette_candidates: data.palette_candidates?.length > 1 ? data.palette_candidates : null,
+            result_b64:    data.result_base64 || null,
+            recolor_count: data.recolor_count,
+          }]);
+          if (data.error) {
+            setMessages(prev => [...prev, { role: 'agent', content: `⚠ ${data.error}` }]);
+          }
+        } else if (event.type === 'error') {
+          setMessages(prev => [...prev, { role: 'agent', content: `⚠ ${event.content}` }]);
+        }
       }
     } catch (e) {
       setMessages(prev => [...prev, {
@@ -135,6 +144,7 @@ export default function App() {
       }]);
     } finally {
       setLoading(false);
+      setProgressLogs([]);
     }
   };
 
@@ -270,7 +280,7 @@ export default function App() {
             {messages.map((msg, i) => (
               <MessageBubble key={i} msg={msg} onPick={pickPalette} />
             ))}
-            {loading && <TypingIndicator />}
+            {loading && <ProgressLog logs={progressLogs} />}
             <div ref={bottomRef} />
           </div>
 

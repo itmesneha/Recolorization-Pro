@@ -16,6 +16,14 @@ Given an image and a color palette, recolorize the image with the palette in a w
 - [Deployment](#deployment)
   - [Streamlit App](#streamlit-app)
   - [FastAPI + Agent System](#fastapi--agent-system)
+    - [Agent Architecture](#agent-architecture)
+    - [Graph Flow](#graph-flow)
+    - [Nodes](#nodes)
+    - [Palette Tools](#palette-tools)
+    - [API Endpoints](#api-endpoints)
+    - [Frontend](#frontend)
+    - [Progress Log Streaming](#progress-log-streaming)
+    - [Running](#running)
 - [Tech Stack](#tech-stack)
 - [Limitations](#limitations)
 - [Applications](#applications)
@@ -76,26 +84,46 @@ Recolorization/
 ├── deployments/
 │   ├── inference/                    # FastAPI backend + agent system
 │   │   ├── infer.py                  # Core inference utilities
-│   │   ├── agents/
-│   │   │   ├── api.py                # FastAPI endpoints (/chat, /health)
-│   │   │   ├── graph.py              # LangGraph agent graph
-│   │   │   ├── state.py              # Shared agent state (RecolorState)
-│   │   │   ├── routing.py            # Intent-based routing logic
-│   │   │   ├── session.py            # Session management
-│   │   │   ├── nodes/                # Agent nodes
-│   │   │   │   ├── input_analyzer.py # Deterministic intent detection
-│   │   │   │   ├── image_agent.py    # Image validation/processing
-│   │   │   │   ├── palette_agent.py  # LLM-based palette generation
-│   │   │   │   ├── recolor_agent.py  # Model inference
-│   │   │   │   ├── chat_agent.py     # Conversation handling
-│   │   │   │   └── respond.py        # Response formatting
-│   │   │   └── tools/                # Palette tools
-│   │   │       ├── palette_formation.py
-│   │   │       ├── palette_utils.py
-│   │   │       ├── color_extraction.py
-│   │   │       └── colormind.py
-│   │   └── requirements.txt
-│   └── streamlit_app/                # Interactive Streamlit UI
+│   │   ├── checkpoint/               # Model checkpoint directory
+│   │   └── agents/
+│   │       ├── server.py             # FastAPI app + CORS + session cleanup
+│   │       ├── agent_api.py          # REST + WebSocket + SSE endpoints
+│   │       ├── graph.py              # LangGraph compiled state machine
+│   │       ├── state.py              # RecolorState TypedDict
+│   │       ├── routing.py            # Conditional edge routing functions
+│   │       ├── session.py            # In-memory session store (1-hour TTL)
+│   │       ├── nodes/
+│   │       │   ├── chat_agent.py     # Conversational LLM + intent classifier
+│   │       │   ├── input_analyzer.py # LLM-based dispatch + slot override detection
+│   │       │   ├── image_agent.py    # Image validation (PNG/JPEG/WEBP/AVIF/GIF)
+│   │       │   ├── palette_agent.py  # LLM tool-calling palette generator
+│   │       │   ├── slot_checker.py   # Checks image + palette readiness
+│   │       │   └── recolor_agent.py  # Model inference runner
+│   │       ├── tools/
+│   │       │   ├── palette_formation.py  # generate_from_description, get_random, parse_user_colors
+│   │       │   ├── palette_utils.py      # Hex display, variation helpers
+│   │       │   ├── color_extraction.py   # ColorThief / Pylette extraction
+│   │       │   └── colormind.py          # Colormind API client
+│   │       ├── tests/
+│   │       │   ├── test_graph_flow.py
+│   │       │   ├── test_palette_agent.py
+│   │       │   ├── interactive_chat.py   # Terminal REPL for direct graph testing
+│   │       │   └── helpers.py
+│   │       └── frontend/             # React (Vite) chat UI
+│   │           ├── src/
+│   │           │   ├── App.jsx
+│   │           │   ├── api.js        # sendChatStreaming, selectPalette
+│   │           │   └── components/
+│   │           │       ├── ProgressLog.jsx    # Real-time pipeline log panel
+│   │           │       ├── MessageBubble.jsx
+│   │           │       ├── LeftPanel.jsx      # Image upload + palette builder
+│   │           │       ├── SidePanel.jsx      # Result + palette display
+│   │           │       ├── PaletteStrip.jsx
+│   │           │       ├── PaletteCandidates.jsx
+│   │           │       ├── InputBar.jsx
+│   │           │       └── ColorWheel.jsx
+│   │           └── package.json
+│   └── streamlit_app/                # Interactive Streamlit UI (legacy)
 │       ├── streamlit_app.py
 │       └── requirements_deploy.txt
 │

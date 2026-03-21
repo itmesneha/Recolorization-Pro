@@ -5,10 +5,14 @@ import io
 import sys
 import os
 
+import logging
+
 import torch
 from PIL import Image
 from langchain_core.messages import AIMessage
 from langsmith import traceable
+
+logger = logging.getLogger("recolor_agent")
 sys.path.append("../")
 from tools.palette_utils import palette_to_hex
 
@@ -35,7 +39,7 @@ def _get_model():
 def recolor_agent(state: dict) -> dict:
     image_b64 = state.get("image_b64")
     palette = state.get("palette")
-    print(f"[INFO] recolor_agent running")
+    logger.info("recolor_agent | starting | has_image=%s has_palette=%s", bool(image_b64), bool(palette and len(palette) == 6))
     if not image_b64:
         return {
             "next_node": "respond",
@@ -56,10 +60,12 @@ def recolor_agent(state: dict) -> dict:
         from infer import recolor_image
 
         model, device = _get_model()
+        logger.info("recolor_agent | model ready on %s", device)
 
         # Decode image
         image_bytes = base64.b64decode(image_b64)
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        logger.info("recolor_agent | running inference on %dx%d image", image.width, image.height)
 
         # Run inference
         output_image = recolor_image(
@@ -76,6 +82,7 @@ def recolor_agent(state: dict) -> dict:
 
         recolor_count = state.get("recolor_count", 0) + 1
         palette_hex = palette_to_hex(palette)
+        logger.info("recolor_agent | complete | attempt #%d | palette %s", recolor_count, palette_hex)
 
         msg = (
             f"Recolorization complete (attempt #{recolor_count}).\n\n"
@@ -95,6 +102,7 @@ def recolor_agent(state: dict) -> dict:
         }
 
     except Exception as e:
+        logger.error("recolor_agent | inference failed: %s", e)
         return {
             "next_node": "respond",
             "error": f"Recolorization failed: {str(e)}",

@@ -16,7 +16,7 @@ sys.path.insert(0, "../")
 from state import PaletteCandidate
 from tools.colormind import fetch_palette
 from tools.palette_utils import palette_to_hex
-from tools.palette_formation import generate_palette_from_description, get_random_palette, parse_user_colors, create_palette_variation
+from tools.palette_formation import generate_palette_from_description, get_random_palette, parse_user_colors
 
 logger = logging.getLogger("palette_agent")
 
@@ -92,7 +92,6 @@ TOOL SELECTION — pick based on the user message:
 | Gives hex codes like #FF6B6B           | parse_user_colors                     |
 | Gives RGB values like (255, 100, 50)   | parse_user_colors                     |
 | Says "random" or "surprise me"         | get_random_palette                    |
-| Wants to adjust/tweak current palette  | create_palette_variation              |
 
 When in doubt, use generate_palette_from_description — it handles any text description. if you get a palette, use it. Don't call any tool."""
 
@@ -100,7 +99,6 @@ TOOLS = [
         generate_palette_from_description,
         get_random_palette,
         parse_user_colors,
-        create_palette_variation,
     ]
 
 

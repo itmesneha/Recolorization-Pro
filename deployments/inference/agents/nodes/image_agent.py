@@ -2,14 +2,16 @@
 
 import base64
 import io
+import logging
 
 from PIL import Image
 from langchain_core.messages import AIMessage
 from langsmith import traceable
 
+logger = logging.getLogger("image_agent")
 
 MAX_IMAGE_SIZE_MB = 10
-SUPPORTED_FORMATS = {"JPEG", "PNG", "WEBP", "BMP", "TIFF"}
+SUPPORTED_FORMATS = {"JPEG", "PNG", "WEBP", "BMP", "TIFF", 'AVIF', 'GIF'}
 
 
 @traceable(run_type="chain", name="image_agent")
@@ -21,6 +23,7 @@ def image_agent(state: dict) -> dict:
     image_b64 = state.get("image_b64")
 
     if not image_b64:
+        logger.info("image_agent | no image in state")
         return {
             "messages": [AIMessage(content=(
                 "I don't see an image yet. Please upload one by dragging and "
@@ -34,6 +37,7 @@ def image_agent(state: dict) -> dict:
         # Size check
         size_mb = len(image_bytes) / (1024 * 1024)
         if size_mb > MAX_IMAGE_SIZE_MB:
+            logger.warning("image_agent | image too large: %.1f MB", size_mb)
             return {
                 "image_b64": None,
                 "error": f"Image too large ({size_mb:.1f}MB)",
@@ -47,6 +51,7 @@ def image_agent(state: dict) -> dict:
 
         # Format check
         if image.format and image.format not in SUPPORTED_FORMATS:
+            logger.warning("image_agent | unsupported format: %s", image.format)
             return {
                 "image_b64": None,
                 "error": f"Unsupported format: {image.format}",
@@ -58,6 +63,7 @@ def image_agent(state: dict) -> dict:
 
         image = image.convert("RGB")
         width, height = image.size
+        logger.info("image_agent | validated %dx%d (%s, %.2f MB)", width, height, image.format or "RGB", size_mb)
 
         # Routing is handled by join_slots; just produce an informational message
         has_palette = (
@@ -87,6 +93,7 @@ def image_agent(state: dict) -> dict:
         }
 
     except Exception as e:
+        logger.error("image_agent | failed to process image: %s", e)
         return {
             "image_b64": None,
             "error": f"Invalid image: {str(e)}",
