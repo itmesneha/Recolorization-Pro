@@ -6,6 +6,9 @@ A deep learning system for recolorizing images using a specified color palette, 
 
 Given an image and a color palette, recolorize the image with the palette in a way that is visually harmonious and aesthetically pleasing.
 
+## Setup
+For setting up and experimenting with this repository, you can refer to [Setup File](Setup.md) .
+
 ## Table of Contents
 
 - [Model Architecture](#model-architecture)
