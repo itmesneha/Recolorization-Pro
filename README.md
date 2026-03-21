@@ -20,12 +20,6 @@ For setting up and experimenting with this repository, you can refer to [Setup F
   - [Streamlit App](#streamlit-app)
   - [FastAPI + Agent System](#fastapi--agent-system)
     - [Agent Architecture](#agent-architecture)
-    - [Graph Flow](#graph-flow)
-    - [Nodes](#nodes)
-    - [Palette Tools](#palette-tools)
-    - [API Endpoints](#api-endpoints)
-    - [Frontend](#frontend)
-    - [Progress Log Streaming](#progress-log-streaming)
     - [Running](#running)
 - [Tech Stack](#tech-stack)
 - [Limitations](#limitations)
@@ -262,7 +256,7 @@ chat_agent --> input_analyzer --> [routes to one or more agents]
 - **recolor_agent**: Runs the recolorization model inference
 - **respond**: Formats the final response with text, palette, and result image
 
-#### Running the API
+#### Running
 
 ```bash
 cd deployments/inference
@@ -271,15 +265,18 @@ pip install -r requirements.txt
 # Ensure Ollama is running with llama3.1:8b
 ollama pull llama3.1:8b
 
-python -m uvicorn agents.api:app --reload --host 0.0.0.0 --port 8000
+python -m uvicorn agents.server:app --reload --host 0.0.0.0 --port 8001
 ```
 
-API available at `http://localhost:8000` (Swagger docs at `/docs`).
+API available at `http://localhost:8001` (Swagger docs at `/docs`).
 
 **Endpoints:**
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/chat` | Send a message (with optional image) and get a response with palette suggestions or recolorized result |
+| POST | `/chat` | Send a message (with optional image), returns response with palette or recolorized result |
+| POST | `/chat/stream` | SSE streaming — streams pipeline log events then the final response |
+| POST | `/chat/{session_id}/select-palette/{index}` | Select a palette candidate and trigger recolorization |
+| WS | `/ws/{session_id}` | WebSocket endpoint for real-time chat |
 | GET | `/health` | Health check |
 
 #### Environment Variables (optional)
@@ -303,7 +300,7 @@ LANGSMITH_PROJECT="recolor-workflow"
 | Agent Framework | LangGraph, LangChain, LangSmith |
 | LLM | Ollama (Llama 3.1:8b) |
 | Backend | FastAPI, Uvicorn |
-| Frontend | Streamlit |
+| Frontend | React (Vite), Streamlit (legacy) |
 | Data Management | DVC |
 | Palette APIs | Colormind |
 
